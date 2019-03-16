@@ -10,17 +10,16 @@
  
  ### Parts list (just Google on the name to find a link where to buy)
 
-| Components                              			    |
-| -------------                          			      |
-| WeMOS D1 Mini ESP module               			      |
+| Components                              			       |
+| -------------                          			        |
+| WeMOS D1 Mini ESP module               			        |
 | LED strip WS2812B 60 RGB LED's 1 meter            |
-| Black PLA filament                           		  |
-| White PLA filament                           		  |
+| Black PLA filament                           		   |
+| White PLA filament                           		   |
 | 4x M3 screws                                      |
 | 5 Volt power adapter                              |
 | Micro USB cable                                   |
 | Jumper wires                                      |
 | Mini breadboard                                   |
 | Micro USB breakout board                          |
-
 
