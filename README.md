@@ -23,3 +23,11 @@
 | Mini breadboard                                   |
 | Micro USB breakout board                          |
 
+
+### YouTube video
+
+<a href="https://youtu.be/Z4b4v84smpg" target="_blank"><img src="https://img.youtube.com/vi/Z4b4v84smpg/0.jpg" 
+alt="Click to view: LED Clock" width="500" border="1" /></a>
+
+
+
