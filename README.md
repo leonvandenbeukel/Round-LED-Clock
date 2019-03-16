@@ -1,4 +1,4 @@
-﻿# WiFi connected Round-LED-Clock
+﻿# Wi-Fi Connected Round-LED-Clock
  
  ### Schema
  
