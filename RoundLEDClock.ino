@@ -8,7 +8,7 @@
   ---  
   NTP and summer time code based on:
   https://tttapa.github.io/ESP8266/Chap15%20-%20NTP.html 
-  https://github.com/SensorsIot/NTPtimeESP/blob/master/NTPtimeESP.cpp (for US summer time support check this link)
+  https://github.com/SensorsIot/NTPtimeESP/blob/master/NTPtimeESP.cpp (for US summer time support check this link)  
   
 */
 
@@ -18,6 +18,18 @@
 #include <FastLED.h>
 #define DEBUG_ON
 
+const char ssid[] = "*";        // Your network SSID name here
+const char pass[] = "*";        // Your network password here
+unsigned long timeZone = 1.0;   // Change this value to your local timezone (in my case +1 for Amsterdam)
+
+// Change the colors here if you want.
+// Check for reference: https://github.com/FastLED/FastLED/wiki/Pixel-reference#predefined-colors-list
+// You can also set the colors with RGB values, for example red:
+// CRGB colorHour = CRGB(255, 0, 0);
+CRGB colorHour = CRGB::Red;
+CRGB colorMinute = CRGB::Green;
+CRGB colorSecond = CRGB::Blue;
+
 ESP8266WiFiMulti wifiMulti;                     
 WiFiUDP UDP;                                    
 IPAddress timeServerIP;                         
@@ -25,29 +37,30 @@ const char* NTPServerName = "time.nist.gov";
 const int NTP_PACKET_SIZE = 48;                 
 byte NTPBuffer[NTP_PACKET_SIZE];                
 
-const char ssid[] = "*";                        // Your network SSID name here
-const char pass[] = "*";                        // Your network password here
-
-unsigned long intervalNTP = 60000;              // Request NTP time every minute
+unsigned long intervalNTP = 5 * 60000; // Request NTP time every 5 minutes
 unsigned long prevNTP = 0;
 unsigned long lastNTPResponse = millis();
 uint32_t timeUNIX = 0;
 unsigned long prevActualTime = 0;
 
 #define LEAP_YEAR(Y) ( ((1970+Y)>0) && !((1970+Y)%4) && ( ((1970+Y)%100) || !((1970+Y)%400) ) )
-static const uint8_t _monthDays[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+static const uint8_t monthDays[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
 #define NUM_LEDS 60     
 #define DATA_PIN D6
 CRGB LEDs[NUM_LEDS];
 
-int year;
-int month;
-int day;
-int hour;
-int minute;
-int second;
-int dayofweek;
+struct DateTime {
+  int  year;
+  byte month;
+  byte day;
+  byte hour;
+  byte minute;
+  byte second;
+  byte dayofweek;
+};
+
+DateTime currentDateTime;
 
 void setup() {
 
@@ -97,15 +110,14 @@ void loop() {
   uint32_t actualTime = timeUNIX + (currentMillis - lastNTPResponse)/1000;
   if (actualTime != prevActualTime && timeUNIX != 0) { // If a second has passed since last update
     prevActualTime = actualTime;
-    ConvertUnixTimestamp(actualTime);
+    convertTime(actualTime);
 
-    for (int i=0; i<NUM_LEDS; i++) {
+    for (int i=0; i<NUM_LEDS; i++) 
       LEDs[i] = CRGB::Black;
-    }
 
-    LEDs[getLEDMinuteOrSecond(second)] = CRGB::Blue;
-    LEDs[getLEDHour(hour)] = CRGB::Red;
-    LEDs[getLEDMinuteOrSecond(minute)] = CRGB::Green;    
+    LEDs[getLEDMinuteOrSecond(currentDateTime.second)] = colorSecond;
+    LEDs[getLEDHour(currentDateTime.hour)] = colorHour;
+    LEDs[getLEDMinuteOrSecond(currentDateTime.minute)] = colorMinute;    
 
     FastLED.show();
   }  
@@ -180,75 +192,68 @@ void sendNTPpacket(IPAddress& address) {
   UDP.endPacket();
 }
 
-inline int getSeconds(uint32_t UNIXTime) {
-  return UNIXTime % 60;
-}
-
-inline int getMinutes(uint32_t UNIXTime) {
-  return UNIXTime / 60 % 60;
-}
-
-inline int getHours(uint32_t UNIXTime) {
-  return UNIXTime / 3600 % 24;
-}
-
-void ConvertUnixTimestamp(uint32_t _time) {
-  second = _time % 60;
-  minute = _time / 60 % 60;
-  hour   = _time / 3600 % 24;
-  _time /= 60; // To minutes
-  _time /= 60; // To hours
-  _time /= 24; // To days
-  dayofweek = ((_time + 4) % 7) + 1;
-  int _year = 0;
-  int _days = 0;
-  while ((unsigned)(_days += (LEAP_YEAR(_year) ? 366 : 365)) <= _time) {
-    _year++;
+void convertTime(uint32_t time) {
+  // Correct time zone
+  time += (3600 * timeZone);
+  
+  currentDateTime.second = time % 60;
+  currentDateTime.minute = time / 60 % 60;
+  currentDateTime.hour   = time / 3600 % 24;
+  time  /= 60;  // To minutes
+  time  /= 60;  // To hours
+  time  /= 24;  // To days
+  currentDateTime.dayofweek = ((time + 4) % 7) + 1;
+  int year = 0;
+  int days = 0;
+  while ((unsigned)(days += (LEAP_YEAR(year) ? 366 : 365)) <= time) {
+    year++;
   }
-  _days -= LEAP_YEAR(_year) ? 366 : 365;
-  _time  -= _days; // To days in this year, starting at 0  
-  _days = 0;
-  int  _month = 0;
-  int  _monthLength = 0;
-  for (_month = 0; _month < 12; _month++) {
-    if (_month == 1) { // february
-      if (LEAP_YEAR(_year)) {
-        _monthLength = 29;
+  days -= LEAP_YEAR(year) ? 366 : 365;
+  time  -= days; // To days in this year, starting at 0  
+  days = 0;
+  byte month = 0;
+  byte monthLength = 0;
+  for (month = 0; month < 12; month++) {
+    if (month == 1) { // February
+      if (LEAP_YEAR(year)) {
+        monthLength = 29;
       } else {
-        _monthLength = 28;
+        monthLength = 28;
       }
     } else {
-      _monthLength = _monthDays[_month];
+      monthLength = monthDays[month];
     }
   
-    if (_time >= _monthLength) {
-      _time -= _monthLength;
+    if (time >= monthLength) {
+      time -= monthLength;
     } else {
       break;
     }
   }
  
-  day = _time + 1;
-  year = _year + 1970;
-  month = _month + 1;  
+  currentDateTime.day = time + 1;
+  currentDateTime.year = year + 1970;
+  currentDateTime.month = month + 1;  
 
-  if (!summerTime()) 
-    hour += 1;
+  // Correct European Summer time
+  if (summerTime()) {
+    currentDateTime.hour += 1;
+  }
 
 #ifdef DEBUG_ON
-  Serial.print(year);
+  Serial.print(currentDateTime.year);
   Serial.print(" ");
-  Serial.print(month);
+  Serial.print(currentDateTime.month);
   Serial.print(" ");
-  Serial.print(day);
+  Serial.print(currentDateTime.day);
   Serial.print(" ");
-  Serial.print(hour);
+  Serial.print(currentDateTime.hour);
   Serial.print(" ");
-  Serial.print(minute);
+  Serial.print(currentDateTime.minute);
   Serial.print(" ");
-  Serial.print(second);
+  Serial.print(currentDateTime.second);
   Serial.print(" day of week: ");
-  Serial.print(dayofweek);
+  Serial.print(currentDateTime.dayofweek);
   Serial.print(" summer time: ");
   Serial.print(summerTime());
   Serial.println();
@@ -257,9 +262,9 @@ void ConvertUnixTimestamp(uint32_t _time) {
 
 boolean summerTime() {
 
-  if (month < 3 || month > 10) return false;  // No summer time in Jan, Feb, Nov, Dec
-  if (month > 3 && month < 10) return true;   // Summer time in Apr, May, Jun, Jul, Aug, Sep
-  if (month == 3 && (hour + 24 * day) >= (3 +  24 * (31 - (5 * year / 4 + 4) % 7)) || month == 10 && (hour + 24 * day) < (3 +  24 * (31 - (5 * year / 4 + 1) % 7)))
+  if (currentDateTime.month < 3 || currentDateTime.month > 10) return false;  // No summer time in Jan, Feb, Nov, Dec
+  if (currentDateTime.month > 3 && currentDateTime.month < 10) return true;   // Summer time in Apr, May, Jun, Jul, Aug, Sep
+  if (currentDateTime.month == 3 && (currentDateTime.hour + 24 * currentDateTime.day) >= (3 +  24 * (31 - (5 * currentDateTime.year / 4 + 4) % 7)) || currentDateTime.month == 10 && (currentDateTime.hour + 24 * currentDateTime.day) < (3 +  24 * (31 - (5 * currentDateTime.year / 4 + 1) % 7)))
   return true;
     else
   return false;
