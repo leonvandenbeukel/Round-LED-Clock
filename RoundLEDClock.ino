@@ -29,6 +29,10 @@ unsigned long timeZone = 1.0;   // Change this value to your local timezone (in 
 CRGB colorHour = CRGB::Red;
 CRGB colorMinute = CRGB::Green;
 CRGB colorSecond = CRGB::Blue;
+CRGB colorHourMinute = CRGB::Yellow;
+CRGB colorHourSecond = CRGB::Magenta;
+CRGB colorMinuteSecond = CRGB::Cyan;
+CRGB colorAll = CRGB::White;
 
 ESP8266WiFiMulti wifiMulti;                     
 WiFiUDP UDP;                                    
@@ -115,9 +119,30 @@ void loop() {
     for (int i=0; i<NUM_LEDS; i++) 
       LEDs[i] = CRGB::Black;
 
-    LEDs[getLEDMinuteOrSecond(currentDateTime.second)] = colorSecond;
-    LEDs[getLEDHour(currentDateTime.hour)] = colorHour;
-    LEDs[getLEDMinuteOrSecond(currentDateTime.minute)] = colorMinute;    
+    int second = getLEDMinuteOrSecond(currentDateTime.second);
+    int minute = getLEDMinuteOrSecond(currentDateTime.minute);
+    int hour = getLEDHour(currentDateTime.hour);
+
+    // Set "Hands"
+    LEDs[second] = colorSecond;
+    LEDs[minute] = colorMinute;  
+    LEDs[hour] = colorHour;  
+
+    // Hour and min are on same spot
+    if ( hour == minute)
+      LEDs[hour] = colorHourMinute;
+
+    // Hour and sec are on same spot
+    if ( hour == second)
+      LEDs[hour] = colorHourSecond;
+
+    // Min and sec are on same spot
+    if ( minute == second)
+      LEDs[minute] = colorMinuteSecond;
+
+    // All are on same spot
+    if ( minute == second && minute == hour)
+      LEDs[minute] = colorAll;
 
     FastLED.show();
   }  
