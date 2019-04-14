@@ -308,7 +308,7 @@ boolean summerTime() {
 
 boolean night() {
 
-  if (currentDateTime.hour >= NIGHTCUTOFF || currentDateTime.hour <= MORNINGCUTOFF) return true;  // night time
+  if (currentDateTime.hour >= NIGHTCUTOFF && currentDateTime.hour <= MORNINGCUTOFF) return true;  // night time
   
 
 }
