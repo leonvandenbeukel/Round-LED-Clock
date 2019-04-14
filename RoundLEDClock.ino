@@ -1,10 +1,7 @@
 /*
   WiFi connected round LED Clock. It gets NTP time from the internet and translates to a 60 RGB WS2812B LED strip.
-
   If you have another orientation where the wire comes out then change the methods getLEDHour and getLEDMinuteOrSecond
-
   Happy programming, Leon van den Beukel, march 2019
-
   ---  
   NTP and summer time code based on:
   https://tttapa.github.io/ESP8266/Chap15%20-%20NTP.html 
@@ -22,6 +19,11 @@ const char ssid[] = "*";        // Your network SSID name here
 const char pass[] = "*";        // Your network password here
 unsigned long timeZone = 1.0;   // Change this value to your local timezone (in my case +1 for Amsterdam)
 
+// cutoff times for day / night brightness. feel free to modify.
+#define MORNINGCUTOFF 8  // when does daybrightness begin?   8am
+#define NIGHTCUTOFF 20 // when does nightbrightness begin? 10pm
+#define NIGHTBRIGHTNESS 20
+
 // Change the colors here if you want.
 // Check for reference: https://github.com/FastLED/FastLED/wiki/Pixel-reference#predefined-colors-list
 // You can also set the colors with RGB values, for example red:
@@ -29,6 +31,10 @@ unsigned long timeZone = 1.0;   // Change this value to your local timezone (in 
 CRGB colorHour = CRGB::Red;
 CRGB colorMinute = CRGB::Green;
 CRGB colorSecond = CRGB::Blue;
+CRGB colorHourMinute = CRGB::Yellow;
+CRGB colorHourSecond = CRGB::Magenta;
+CRGB colorMinuteSecond = CRGB::Cyan;
+CRGB colorAll = CRGB::White;
 
 ESP8266WiFiMulti wifiMulti;                     
 WiFiUDP UDP;                                    
@@ -114,10 +120,38 @@ void loop() {
 
     for (int i=0; i<NUM_LEDS; i++) 
       LEDs[i] = CRGB::Black;
+    
+    for (int i=0; i<NUM_LEDS; i=i+5) // dots of hours and quarters
+      LEDs[i] = CRGB::Gold;  
 
-    LEDs[getLEDMinuteOrSecond(currentDateTime.second)] = colorSecond;
-    LEDs[getLEDHour(currentDateTime.hour)] = colorHour;
-    LEDs[getLEDMinuteOrSecond(currentDateTime.minute)] = colorMinute;    
+    int second = getLEDMinuteOrSecond(currentDateTime.second);
+    int minute = getLEDMinuteOrSecond(currentDateTime.minute);
+    int hour = getLEDHour(currentDateTime.hour);
+
+    // Set "Hands"
+    LEDs[second] = colorSecond;
+    LEDs[minute] = colorMinute;  
+    LEDs[hour] = colorHour;  
+
+    // Hour and min are on same spot
+    if ( hour == minute)
+      LEDs[hour] = colorHourMinute;
+
+    // Hour and sec are on same spot
+    if ( hour == second)
+      LEDs[hour] = colorHourSecond;
+
+    // Min and sec are on same spot
+    if ( minute == second)
+      LEDs[minute] = colorMinuteSecond;
+
+    // All are on same spot
+    if ( minute == second && minute == hour)
+      LEDs[minute] = colorAll;
+
+    // Night brigthness low
+     if ( night() )
+      FastLED.setBrightness (NIGHTBRIGHTNESS); 
 
     FastLED.show();
   }  
@@ -256,6 +290,8 @@ void convertTime(uint32_t time) {
   Serial.print(currentDateTime.dayofweek);
   Serial.print(" summer time: ");
   Serial.print(summerTime());
+  Serial.print(" night time: ");
+  Serial.print(night());
   Serial.println();
 #endif  
 }
@@ -268,4 +304,11 @@ boolean summerTime() {
   return true;
     else
   return false;
+}
+
+boolean night() {
+
+  if (currentDateTime.hour >= NIGHTCUTOFF || currentDateTime.hour <= MORNINGCUTOFF) return true;  // night time
+  
+
 }
