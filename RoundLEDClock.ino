@@ -18,6 +18,11 @@
 #include <FastLED.h>
 #define DEBUG_ON
 
+/**************************** FOR OTA **************************************************/
+#define SENSORNAME "ledclock" //change this to whatever you want to call your device
+#define OTApassword "YourOTApassHere" //the password you will need to enter to upload remotely via the ArduinoIDE
+int OTAport = 8266;
+
 const char ssid[] = "*";        // Your network SSID name here
 const char pass[] = "*";        // Your network password here
 unsigned long timeZone = 1.0;   // Change this value to your local timezone (in my case +1 for Amsterdam)
@@ -30,12 +35,12 @@ CRGB colorHour = CRGB::Red;
 CRGB colorMinute = CRGB::Green;
 CRGB colorSecond = CRGB::Blue;
 
-ESP8266WiFiMulti wifiMulti;                     
-WiFiUDP UDP;                                    
-IPAddress timeServerIP;                         
-const char* NTPServerName = "time.nist.gov";    
-const int NTP_PACKET_SIZE = 48;                 
-byte NTPBuffer[NTP_PACKET_SIZE];                
+ESP8266WiFiMulti wifiMulti;
+WiFiUDP UDP;
+IPAddress timeServerIP;
+const char* NTPServerName = "nl.pool.ntp.org";
+const int NTP_PACKET_SIZE = 48;
+byte NTPBuffer[NTP_PACKET_SIZE];
 
 unsigned long intervalNTP = 5 * 60000; // Request NTP time every 5 minutes
 unsigned long prevNTP = 0;
@@ -46,7 +51,7 @@ unsigned long prevActualTime = 0;
 #define LEAP_YEAR(Y) ( ((1970+Y)>0) && !((1970+Y)%4) && ( ((1970+Y)%100) || !((1970+Y)%400) ) )
 static const uint8_t monthDays[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
-#define NUM_LEDS 60     
+#define NUM_LEDS 60
 #define DATA_PIN D6
 CRGB LEDs[NUM_LEDS];
 
@@ -65,9 +70,9 @@ DateTime currentDateTime;
 void setup() {
 
   FastLED.delay(3000);
-  FastLED.addLeds<WS2812B, DATA_PIN, GRB>(LEDs, NUM_LEDS);  
+  FastLED.addLeds<WS2812B, DATA_PIN, GRB>(LEDs, NUM_LEDS);
 
-  Serial.begin(115200);          
+  Serial.begin(115200);
   delay(10);
   Serial.println("\r\n");
 
@@ -81,9 +86,34 @@ void setup() {
   }
   Serial.print("Time server IP:\t");
   Serial.println(timeServerIP);
-  
+
   Serial.println("\r\nSending NTP request ...");
   sendNTPpacket(timeServerIP);  
+
+  ArduinoOTA.setPort(OTAport);                       //OTA SETUP
+  
+  ArduinoOTA.setHostname(SENSORNAME);                // Hostname defaults to esp8266-[ChipID]
+
+  ArduinoOTA.setPassword((const char *)OTApassword); // No authentication by default
+
+  ArduinoOTA.onStart([]() {
+    Serial.println("Starting");
+  });
+  ArduinoOTA.onEnd([]() {
+    Serial.println("\nEnd");
+  });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("Error[%u]: ", error);
+    if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+    else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+    else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+    else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+    else if (error == OTA_END_ERROR) Serial.println("End Failed");
+  });
+  ArduinoOTA.begin();
 }
 
 void loop() {
@@ -112,7 +142,7 @@ void loop() {
     prevActualTime = actualTime;
     convertTime(actualTime);
 
-    for (int i=0; i<NUM_LEDS; i++) 
+    for (int i=0; i<NUM_LEDS; i++)
       LEDs[i] = CRGB::Black;
 
     LEDs[getLEDMinuteOrSecond(currentDateTime.second)] = colorSecond;
@@ -120,7 +150,8 @@ void loop() {
     LEDs[getLEDMinuteOrSecond(currentDateTime.minute)] = colorMinute;    
 
     FastLED.show();
-  }  
+  }
+  ArduinoOTA.handle();
 }
 
 byte getLEDHour(byte hours) {
@@ -134,28 +165,28 @@ byte getLEDHour(byte hours) {
 }
 
 byte getLEDMinuteOrSecond(byte minuteOrSecond) {
-  if (minuteOrSecond < 30) 
+  if (minuteOrSecond < 30)
     return minuteOrSecond + 30;
-  else 
+  else
     return minuteOrSecond - 30;
 }
 
-void startWiFi() { 
-  wifiMulti.addAP(ssid, pass);   
+void startWiFi() {
+  wifiMulti.addAP(ssid, pass);
 
   Serial.println("Connecting");
   byte i = 0;
-  while (wifiMulti.run() != WL_CONNECTED) {  
+  while (wifiMulti.run() != WL_CONNECTED) {
     delay(250);
     Serial.print('.');
     LEDs[i++] = CRGB::Green;
-    FastLED.show();    
+    FastLED.show();
   }
   Serial.println("\r\n");
   Serial.print("Connected to ");
-  Serial.println(WiFi.SSID());             
+  Serial.println(WiFi.SSID());
   Serial.print("IP address:\t");
-  Serial.print(WiFi.localIP());            
+  Serial.print(WiFi.localIP());
   Serial.println("\r\n");
 }
 
@@ -209,7 +240,7 @@ void convertTime(uint32_t time) {
     year++;
   }
   days -= LEAP_YEAR(year) ? 366 : 365;
-  time  -= days; // To days in this year, starting at 0  
+  time  -= days; // To days in this year, starting at 0
   days = 0;
   byte month = 0;
   byte monthLength = 0;
@@ -230,10 +261,10 @@ void convertTime(uint32_t time) {
       break;
     }
   }
- 
+
   currentDateTime.day = time + 1;
   currentDateTime.year = year + 1970;
-  currentDateTime.month = month + 1;  
+  currentDateTime.month = month + 1;
 
   // Correct European Summer time
   if (summerTime()) {
@@ -257,7 +288,7 @@ void convertTime(uint32_t time) {
   Serial.print(" summer time: ");
   Serial.print(summerTime());
   Serial.println();
-#endif  
+#endif
 }
 
 boolean summerTime() {
