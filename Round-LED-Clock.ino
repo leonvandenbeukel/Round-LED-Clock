@@ -34,6 +34,12 @@ CRGB colorHourSecond = CRGB::Magenta;
 CRGB colorMinuteSecond = CRGB::Cyan;
 CRGB colorAll = CRGB::White;
 
+// Cutoff times for day / night brightness.
+#define USE_NIGHTCUTOFF false   // Enable/Disable night brightness
+#define MORNINGCUTOFF 8         // When does daybrightness begin?   8am
+#define NIGHTCUTOFF 20          // When does nightbrightness begin? 10pm
+#define NIGHTBRIGHTNESS 20      // Brightness level from 0 (off) to 255 (full brightness)
+
 ESP8266WiFiMulti wifiMulti;                     
 WiFiUDP UDP;                                    
 IPAddress timeServerIP;                         
@@ -143,6 +149,9 @@ void loop() {
     // All are on same spot
     if ( minute == second && minute == hour)
       LEDs[minute] = colorAll;
+
+    if ( night() && USE_NIGHTCUTOFF == true )
+      FastLED.setBrightness (NIGHTBRIGHTNESS); 
 
     FastLED.show();
   }  
@@ -281,6 +290,8 @@ void convertTime(uint32_t time) {
   Serial.print(currentDateTime.dayofweek);
   Serial.print(" summer time: ");
   Serial.print(summerTime());
+  Serial.print(" night time: ");
+  Serial.print(night());  
   Serial.println();
 #endif  
 }
@@ -293,4 +304,10 @@ boolean summerTime() {
   return true;
     else
   return false;
+}
+
+boolean night() {
+  
+  if (currentDateTime.hour >= NIGHTCUTOFF && currentDateTime.hour <= MORNINGCUTOFF) 
+    return true;    
 }
