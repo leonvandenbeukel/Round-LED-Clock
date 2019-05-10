@@ -34,6 +34,9 @@ CRGB colorHourSecond = CRGB::Magenta;
 CRGB colorMinuteSecond = CRGB::Cyan;
 CRGB colorAll = CRGB::White;
 
+// Set this to true if you want the hour LED to move between hours (if set to false the hour LED will only move every hour)
+#define USE_LED_MOVE_BETWEEN_HOURS true
+
 // Cutoff times for day / night brightness.
 #define USE_NIGHTCUTOFF false   // Enable/Disable night brightness
 #define MORNINGCUTOFF 8         // When does daybrightness begin?   8am
@@ -127,7 +130,7 @@ void loop() {
 
     int second = getLEDMinuteOrSecond(currentDateTime.second);
     int minute = getLEDMinuteOrSecond(currentDateTime.minute);
-    int hour = getLEDHour(currentDateTime.hour);
+    int hour = getLEDHour(currentDateTime.hour, currentDateTime.minute);
 
     // Set "Hands"
     LEDs[second] = colorSecond;
@@ -157,14 +160,29 @@ void loop() {
   }  
 }
 
-byte getLEDHour(byte hours) {
+byte getLEDHour(byte hours, byte minutes) {
   if (hours > 12)
     hours = hours - 12;
 
+  byte hourLED;
   if (hours <= 5) 
-    return (hours * 5) + 30;
+    hourLED = (hours * 5) + 30;
   else
-    return (hours * 5) - 30;
+    hourLED = (hours * 5) - 30;
+
+  if (USE_LED_MOVE_BETWEEN_HOURS == true) {
+    if        (minutes >= 12 && minutes < 24) {
+      hourLED += 1;
+    } else if (minutes >= 24 && minutes < 36) {
+      hourLED += 2;
+    } else if (minutes >= 36 && minutes < 48) {
+      hourLED += 3;
+    } else if (minutes >= 48) {
+      hourLED += 4;
+    }
+  }
+
+  return hourLED;  
 }
 
 byte getLEDMinuteOrSecond(byte minuteOrSecond) {
