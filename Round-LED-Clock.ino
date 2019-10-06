@@ -18,9 +18,11 @@
 #include <FastLED.h>
 #define DEBUG_ON
 
-const char ssid[] = "*";        // Your network SSID name here
-const char pass[] = "*";        // Your network password here
-unsigned long timeZone = 1.0;   // Change this value to your local timezone (in my case +1 for Amsterdam)
+const char ssid[] = "*";                          // Your network SSID name here
+const char pass[] = "*";                          // Your network password here
+unsigned long timeZone = 1.0;                     // Change this value to your local timezone (in my case +1 for Amsterdam)
+const char* NTPServerName = "nl.pool.ntp.org";    // Change this to a ntpserver nearby, check this site for a list of servers: https://www.pool.ntp.org/en/
+unsigned long intervalNTP = 24 * 60 * 60000;      // Request a new NTP time every 24 hours
 
 // Change the colors here if you want.
 // Check for reference: https://github.com/FastLED/FastLED/wiki/Pixel-reference#predefined-colors-list
@@ -46,11 +48,9 @@ CRGB colorAll = CRGB::White;
 ESP8266WiFiMulti wifiMulti;                     
 WiFiUDP UDP;                                    
 IPAddress timeServerIP;                         
-const char* NTPServerName = "time.nist.gov";    
 const int NTP_PACKET_SIZE = 48;                 
 byte NTPBuffer[NTP_PACKET_SIZE];                
 
-unsigned long intervalNTP = 5 * 60000; // Request NTP time every 5 minutes
 unsigned long prevNTP = 0;
 unsigned long lastNTPResponse = millis();
 uint32_t timeUNIX = 0;
