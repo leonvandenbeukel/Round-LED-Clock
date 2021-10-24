@@ -15,11 +15,12 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266WiFiMulti.h>
 #include <WiFiUdp.h>
+#define FASTLED_ESP8266_RAW_PIN_ORDER // see https://github.com/FastLED/FastLED/wiki/ESP8266-notes
 #include <FastLED.h>
-#define DEBUG_ON
+//#define DEBUG_ON
 
-const char ssid[] = "*";                          // Your network SSID name here
-const char pass[] = "*";                          // Your network password here
+const char ssid[] = "[WIFISSID]";               // Your network SSID name here
+const char pass[] = "[WIFIPASSWD]";    // Your network password here
 unsigned long timeZone = 1.0;                     // Change this value to your local timezone (in my case +1 for Amsterdam)
 const char* NTPServerName = "nl.pool.ntp.org";    // Change this to a ntpserver nearby, check this site for a list of servers: https://www.pool.ntp.org/en/
 unsigned long intervalNTP = 24 * 60 * 60000;      // Request a new NTP time every 24 hours
@@ -40,10 +41,11 @@ CRGB colorAll = CRGB::White;
 #define USE_LED_MOVE_BETWEEN_HOURS true
 
 // Cutoff times for day / night brightness.
-#define USE_NIGHTCUTOFF false   // Enable/Disable night brightness
-#define MORNINGCUTOFF 8         // When does daybrightness begin?   8am
-#define NIGHTCUTOFF 20          // When does nightbrightness begin? 10pm
-#define NIGHTBRIGHTNESS 20      // Brightness level from 0 (off) to 255 (full brightness)
+#define USE_NIGHTCUTOFF true   // Enable/Disable night brightness
+#define MORNINGCUTOFF 8        // When does daybrightness begin?   8am
+#define NIGHTCUTOFF 20         // When does nightbrightness begin? 10pm
+#define NIGHTBRIGHTNESS 20     // Brightness level from 0 (off) to 255 (full brightness)
+#define DAYBRIGHTNESS 255      // Brightness level from 0 (off) to 255 (full brightness)
 
 ESP8266WiFiMulti wifiMulti;                     
 WiFiUDP UDP;                                    
@@ -60,7 +62,8 @@ unsigned long prevActualTime = 0;
 static const uint8_t monthDays[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
 #define NUM_LEDS 60     
-#define DATA_PIN D6
+#define DATA_PIN D1 //D1, D4 tested on NodeMCU Amica Modul V2 ESP8266 ESP-12F
+#define BAUD_RATE 9600 //
 CRGB LEDs[NUM_LEDS];
 
 struct DateTime {
@@ -80,7 +83,7 @@ void setup() {
   FastLED.delay(3000);
   FastLED.addLeds<WS2812B, DATA_PIN, GRB>(LEDs, NUM_LEDS);  
 
-  Serial.begin(115200);          
+  Serial.begin(BAUD_RATE);
   delay(10);
   Serial.println("\r\n");
 
@@ -125,8 +128,7 @@ void loop() {
     prevActualTime = actualTime;
     convertTime(actualTime);
 
-    for (int i=0; i<NUM_LEDS; i++) 
-      LEDs[i] = CRGB::Black;
+    FastLED.clear();
 
     int second = getLEDMinuteOrSecond(currentDateTime.second);
     int minute = getLEDMinuteOrSecond(currentDateTime.minute);
@@ -135,7 +137,7 @@ void loop() {
     // Set "Hands"
     LEDs[second] = colorSecond;
     LEDs[minute] = colorMinute;  
-    LEDs[hour] = colorHour;  
+    LEDs[hour] = colorHour;
 
     // Hour and min are on same spot
     if ( hour == minute)
@@ -152,9 +154,11 @@ void loop() {
     // All are on same spot
     if ( minute == second && minute == hour)
       LEDs[minute] = colorAll;
-
+    
     if ( night() && USE_NIGHTCUTOFF == true )
-      FastLED.setBrightness (NIGHTBRIGHTNESS); 
+      FastLED.setBrightness (NIGHTBRIGHTNESS);
+    else
+      FastLED.setBrightness (DAYBRIGHTNESS);
 
     FastLED.show();
   }  
@@ -186,7 +190,7 @@ byte getLEDHour(byte hours, byte minutes) {
 }
 
 byte getLEDMinuteOrSecond(byte minuteOrSecond) {
-  if (minuteOrSecond < 30) 
+  if (minuteOrSecond < 30)
     return minuteOrSecond + 30;
   else 
     return minuteOrSecond - 30;
@@ -195,12 +199,22 @@ byte getLEDMinuteOrSecond(byte minuteOrSecond) {
 void startWiFi() { 
   wifiMulti.addAP(ssid, pass);   
 
+  FastLED.clear();
+  FastLED.show();
+
+  for (int i=0; i<NUM_LEDS; i++) {
+    LEDs[i] = CRGB::Blue;
+    FastLED.show();
+    FastLED.delay(25);
+  }
+
   Serial.println("Connecting");
   byte i = 0;
   while (wifiMulti.run() != WL_CONNECTED) {  
-    delay(250);
+    delay(50);
+    i++;
     Serial.print('.');
-    LEDs[i++] = CRGB::Green;
+    LEDs[i % NUM_LEDS] = CRGB::Green;
     FastLED.show();    
   }
   Serial.println("\r\n");
@@ -247,7 +261,6 @@ void sendNTPpacket(IPAddress& address) {
 void convertTime(uint32_t time) {
   // Correct time zone
   time += (3600 * timeZone);
-  
   currentDateTime.second = time % 60;
   currentDateTime.minute = time / 60 % 60;
   currentDateTime.hour   = time / 3600 % 24;
@@ -311,7 +324,7 @@ void convertTime(uint32_t time) {
   Serial.print(" night time: ");
   Serial.print(night());  
   Serial.println();
-#endif  
+#endif
 }
 
 boolean summerTime() {
@@ -319,13 +332,11 @@ boolean summerTime() {
   if (currentDateTime.month < 3 || currentDateTime.month > 10) return false;  // No summer time in Jan, Feb, Nov, Dec
   if (currentDateTime.month > 3 && currentDateTime.month < 10) return true;   // Summer time in Apr, May, Jun, Jul, Aug, Sep
   if (currentDateTime.month == 3 && (currentDateTime.hour + 24 * currentDateTime.day) >= (3 +  24 * (31 - (5 * currentDateTime.year / 4 + 4) % 7)) || currentDateTime.month == 10 && (currentDateTime.hour + 24 * currentDateTime.day) < (3 +  24 * (31 - (5 * currentDateTime.year / 4 + 1) % 7)))
-  return true;
-    else
-  return false;
+    return true;
+  else
+    return false;
 }
 
 boolean night() {
-  
-  if (currentDateTime.hour >= NIGHTCUTOFF && currentDateTime.hour <= MORNINGCUTOFF) 
-    return true;    
+  return ( currentDateTime.hour >= NIGHTCUTOFF ) || ( currentDateTime.hour < MORNINGCUTOFF );
 }
