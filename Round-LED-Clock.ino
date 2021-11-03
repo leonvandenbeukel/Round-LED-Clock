@@ -23,7 +23,8 @@ const char ssid[] = "[WIFISSID]";               // Your network SSID name here
 const char pass[] = "[WIFIPASSWD]";    // Your network password here
 unsigned long timeZone = 1.0;                     // Change this value to your local timezone (in my case +1 for Amsterdam)
 const char* NTPServerName = "nl.pool.ntp.org";    // Change this to a ntpserver nearby, check this site for a list of servers: https://www.pool.ntp.org/en/
-unsigned long intervalNTP = 24 * 60 * 60000;      // Request a new NTP time every 24 hours
+unsigned long intervalNTP = 24 * 60 * 60 * 1000;      // Request a new NTP time every 24 hours
+unsigned long NTPmaxWait =  60 * 1000; // Maximum Time to wait for NTP request
 
 // Change the colors here if you want.
 // Check for reference: https://github.com/FastLED/FastLED/wiki/Pixel-reference#predefined-colors-list
@@ -32,10 +33,6 @@ unsigned long intervalNTP = 24 * 60 * 60000;      // Request a new NTP time ever
 CRGB colorHour = CRGB::Red;
 CRGB colorMinute = CRGB::Green;
 CRGB colorSecond = CRGB::Blue;
-CRGB colorHourMinute = CRGB::Yellow;
-CRGB colorHourSecond = CRGB::Magenta;
-CRGB colorMinuteSecond = CRGB::Cyan;
-CRGB colorAll = CRGB::White;
 
 // Set this to true if you want the hour LED to move between hours (if set to false the hour LED will only move every hour)
 #define USE_LED_MOVE_BETWEEN_HOURS true
@@ -44,7 +41,7 @@ CRGB colorAll = CRGB::White;
 #define USE_NIGHTCUTOFF true   // Enable/Disable night brightness
 #define MORNINGCUTOFF 8        // When does daybrightness begin?   8am
 #define NIGHTCUTOFF 20         // When does nightbrightness begin? 10pm
-#define NIGHTBRIGHTNESS 20     // Brightness level from 0 (off) to 255 (full brightness)
+#define NIGHTBRIGHTNESS 60     // Brightness level from 0 (off) to 255 (full brightness)
 #define DAYBRIGHTNESS 255      // Brightness level from 0 (off) to 255 (full brightness)
 
 ESP8266WiFiMulti wifiMulti;                     
@@ -62,7 +59,7 @@ unsigned long prevActualTime = 0;
 static const uint8_t monthDays[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
 #define NUM_LEDS 60     
-#define DATA_PIN D1 //D1, D4 tested on NodeMCU Amica Modul V2 ESP8266 ESP-12F
+#define DATA_PIN D4 //D1, D4 tested on NodeMCU Amica Modul V2 ESP8266 ESP-12F
 #define BAUD_RATE 9600 //
 CRGB LEDs[NUM_LEDS];
 
@@ -105,7 +102,7 @@ void setup() {
 void loop() {
   unsigned long currentMillis = millis();
 
-  if (currentMillis - prevNTP > intervalNTP) { // If a minute has passed since last NTP request
+  if (currentMillis - prevNTP > intervalNTP) { // If last NTP request inteval has passed
     prevNTP = currentMillis;
     Serial.println("\r\nSending NTP request ...");
     sendNTPpacket(timeServerIP);               // Send an NTP request
@@ -117,18 +114,20 @@ void loop() {
     Serial.print("NTP response:\t");
     Serial.println(timeUNIX);
     lastNTPResponse = currentMillis;
-  } else if ((currentMillis - lastNTPResponse) > 3600000) {
-    Serial.println("More than 1 hour since last NTP response. Rebooting.");
+  } else if ((currentMillis - lastNTPResponse) > ( intervalNTP + NTPmaxWait ) ) {
+    Serial.print("More than ");
+    Serial.print( ( NTPmaxWait / 1000 ) );
+    Serial.print(" seconds since last NTP response. Rebooting.");
     Serial.flush();
     ESP.reset();
   }
 
   uint32_t actualTime = timeUNIX + (currentMillis - lastNTPResponse)/1000;
   if (actualTime != prevActualTime && timeUNIX != 0) { // If a second has passed since last update
+    FastLED.clear();
+
     prevActualTime = actualTime;
     convertTime(actualTime);
-
-    FastLED.clear();
 
     int second = getLEDMinuteOrSecond(currentDateTime.second);
     int minute = getLEDMinuteOrSecond(currentDateTime.minute);
@@ -136,30 +135,15 @@ void loop() {
 
     // Set "Hands"
     LEDs[second] = colorSecond;
-    LEDs[minute] = colorMinute;  
-    LEDs[hour] = colorHour;
+    LEDs[minute] += colorMinute;  
+    LEDs[hour] += colorHour;
 
-    // Hour and min are on same spot
-    if ( hour == minute)
-      LEDs[hour] = colorHourMinute;
-
-    // Hour and sec are on same spot
-    if ( hour == second)
-      LEDs[hour] = colorHourSecond;
-
-    // Min and sec are on same spot
-    if ( minute == second)
-      LEDs[minute] = colorMinuteSecond;
-
-    // All are on same spot
-    if ( minute == second && minute == hour)
-      LEDs[minute] = colorAll;
-    
     if ( night() && USE_NIGHTCUTOFF == true )
       FastLED.setBrightness (NIGHTBRIGHTNESS);
     else
       FastLED.setBrightness (DAYBRIGHTNESS);
 
+    FastLED.show();
     FastLED.show();
   }  
 }
