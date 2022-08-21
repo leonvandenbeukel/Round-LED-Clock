@@ -77,7 +77,8 @@ CRGB colorSecond = CRGB::Blue;
           
 WiFiUDP UDP;                                    
 
-#define NUM_LEDS 60     
+#define NUM_LEDS 60
+#define OFFSET_LEDS 0 //set offset of used LEDS.
 #define DATA_PIN D4 //D1, D4 tested on NodeMCU Amica Modul V2 ESP8266 ESP-12F
 #define BAUD_RATE 9600 //
 CRGB LEDs[NUM_LEDS];
@@ -157,13 +158,14 @@ void loop() {
 
 byte getLEDHour(byte hours, byte minutes) {
   if (hours > 12)
+    //convert 24h back to 12
     hours = hours - 12;
 
   byte hourLED;
-  if (hours <= 5) 
-    hourLED = (hours * 5) + 30;
+  if (hours <= 5)
+    hourLED = (hours * ( NUM_LEDS / 12 )) + OFFSET_LEDS;
   else
-    hourLED = (hours * 5) - 30;
+    hourLED = (hours * ( NUM_LEDS / 12 )) - OFFSET_LEDS;
 
   if (USE_LED_MOVE_BETWEEN_HOURS == true) {
     if        (minutes >= 12 && minutes < 24) {
@@ -181,10 +183,10 @@ byte getLEDHour(byte hours, byte minutes) {
 }
 
 byte getLEDMinuteOrSecond(byte minuteOrSecond) {
-  if (minuteOrSecond < 30)
-    return minuteOrSecond + 30;
+  if (minuteOrSecond < OFFSET_LEDS)
+    return minuteOrSecond + OFFSET_LEDS;
   else 
-    return minuteOrSecond - 30;
+    return minuteOrSecond - OFFSET_LEDS;
 }
 
 void configModeCallback (WiFiManager *myWiFiManager) {
