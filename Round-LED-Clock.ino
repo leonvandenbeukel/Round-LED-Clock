@@ -160,13 +160,14 @@ byte getLEDHour(byte hours, byte minutes) {
   if (hours > 12)
     //convert 24h back to 12
     hours = hours - 12;
-
+  Serial.print(hours);
+  Serial.print(" - ");
   byte hourLED;
   if (hours <= 5)
     hourLED = (hours * ( NUM_LEDS / 12 )) + OFFSET_LEDS;
   else
     hourLED = (hours * ( NUM_LEDS / 12 )) - OFFSET_LEDS;
-
+  
   if (USE_LED_MOVE_BETWEEN_HOURS == true) {
     if        (minutes >= 12 && minutes < 24) {
       hourLED += 1;
@@ -178,7 +179,8 @@ byte getLEDHour(byte hours, byte minutes) {
       hourLED += 4;
     }
   }
-
+  
+  hourLED = hourLED % NUM_LEDS;
   return hourLED;  
 }
 
