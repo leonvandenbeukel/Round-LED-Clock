@@ -13,18 +13,49 @@
 */
 
 #include <ESP8266WiFi.h>
-#include <ESP8266WiFiMulti.h>
+#include <WiFiManager.h>
 #include <WiFiUdp.h>
 #define FASTLED_ESP8266_RAW_PIN_ORDER // see https://github.com/FastLED/FastLED/wiki/ESP8266-notes
 #include <FastLED.h>
 //#define DEBUG_ON
 
-const char ssid[] = "[WIFISSID]";               // Your network SSID name here
-const char pass[] = "[WIFIPASSWD]";    // Your network password here
+WiFiManager wifiManager;
+// because of callbacks, these need to be in the higher scope :(
+WiFiManagerParameter* wifiStaticIP = NULL;
+WiFiManagerParameter* wifiStaticIPNetmask = NULL;
+WiFiManagerParameter* wifiStaticIPGateway = NULL;
+
+// ###NTP and time config###
 unsigned long timeZone = 1.0;                     // Change this value to your local timezone (in my case +1 for Amsterdam)
 const char* NTPServerName = "nl.pool.ntp.org";    // Change this to a ntpserver nearby, check this site for a list of servers: https://www.pool.ntp.org/en/
 unsigned long intervalNTP = 24 * 60 * 60 * 1000;      // Request a new NTP time every 24 hours
 unsigned long NTPmaxWait =  60 * 1000; // Maximum Time to wait for NTP request
+
+IPAddress timeServerIP;                         
+const int NTP_PACKET_SIZE = 48;                 
+byte NTPBuffer[NTP_PACKET_SIZE];                
+
+unsigned long prevNTP = 0;
+unsigned long lastNTPResponse = millis();
+uint32_t timeUNIX = 0;
+unsigned long prevActualTime = 0;
+
+#define LEAP_YEAR(Y) ( ((1970+Y)>0) && !((1970+Y)%4) && ( ((1970+Y)%100) || !((1970+Y)%400) ) )
+static const uint8_t monthDays[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+
+struct DateTime {
+  int  year;
+  byte month;
+  byte day;
+  byte hour;
+  byte minute;
+  byte second;
+  byte dayofweek;
+};
+
+DateTime currentDateTime;
+
+// ###FastLED Basics###
 
 // Change the colors here if you want.
 // Check for reference: https://github.com/FastLED/FastLED/wiki/Pixel-reference#predefined-colors-list
@@ -43,37 +74,13 @@ CRGB colorSecond = CRGB::Blue;
 #define NIGHTCUTOFF 20         // When does nightbrightness begin? 10pm
 #define NIGHTBRIGHTNESS 60     // Brightness level from 0 (off) to 255 (full brightness)
 #define DAYBRIGHTNESS 255      // Brightness level from 0 (off) to 255 (full brightness)
-
-ESP8266WiFiMulti wifiMulti;                     
+          
 WiFiUDP UDP;                                    
-IPAddress timeServerIP;                         
-const int NTP_PACKET_SIZE = 48;                 
-byte NTPBuffer[NTP_PACKET_SIZE];                
-
-unsigned long prevNTP = 0;
-unsigned long lastNTPResponse = millis();
-uint32_t timeUNIX = 0;
-unsigned long prevActualTime = 0;
-
-#define LEAP_YEAR(Y) ( ((1970+Y)>0) && !((1970+Y)%4) && ( ((1970+Y)%100) || !((1970+Y)%400) ) )
-static const uint8_t monthDays[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
 #define NUM_LEDS 60     
 #define DATA_PIN D4 //D1, D4 tested on NodeMCU Amica Modul V2 ESP8266 ESP-12F
 #define BAUD_RATE 9600 //
 CRGB LEDs[NUM_LEDS];
-
-struct DateTime {
-  int  year;
-  byte month;
-  byte day;
-  byte hour;
-  byte minute;
-  byte second;
-  byte dayofweek;
-};
-
-DateTime currentDateTime;
 
 void setup() {
 
@@ -180,33 +187,59 @@ byte getLEDMinuteOrSecond(byte minuteOrSecond) {
     return minuteOrSecond - 30;
 }
 
-void startWiFi() { 
-  wifiMulti.addAP(ssid, pass);   
+void configModeCallback (WiFiManager *myWiFiManager) {
+  Serial.println("Entered config mode");
+  Serial.println(WiFi.softAPIP());
+  Serial.println(myWiFiManager->getConfigPortalSSID());
+  for (int i=0; i<NUM_LEDS; i++) {
+    LEDs[i] = CRGB::Yellow;
+    FastLED.show();
+    FastLED.delay(25);
+  }
+}
+
+void startWiFi() {
+  String ssid = "RC" + String(ESP.getChipId());
 
   FastLED.clear();
   FastLED.show();
 
+  //fancy boot effect
   for (int i=0; i<NUM_LEDS; i++) {
     LEDs[i] = CRGB::Blue;
     FastLED.show();
     FastLED.delay(25);
   }
 
-  Serial.println("Connecting");
-  byte i = 0;
-  while (wifiMulti.run() != WL_CONNECTED) {  
-    delay(50);
-    i++;
-    Serial.print('.');
-    LEDs[i % NUM_LEDS] = CRGB::Green;
-    FastLED.show();    
+  wifiManager.setAPCallback(configModeCallback);
+
+  wifiManager.setConfigPortalTimeout(180);
+
+  if (wifiManager.autoConnect(ssid.c_str(), "roundclock")) {
+    // set LED for successful operation
+    for (int i=0; i<NUM_LEDS; i++) {
+      LEDs[i] = CRGB::Green;
+      FastLED.show();
+      FastLED.delay(25);
+    }
+    Serial.println(F("Wifi connected succesfully\n"));
+    Serial.println("\r\n");
+    Serial.print("Connected to ");
+    Serial.println(WiFi.SSID());
+    Serial.print("IP address:\t");
+    Serial.print(WiFi.localIP());
+    Serial.println("\r\n");
+
+    // if the config portal was started, make sure to turn off the config AP
+    WiFi.mode(WIFI_STA);
+  } else {
+    // set LED for Wifi failed
+    fill_solid(LEDs,NUM_LEDS, CRGB::Red);
+    Serial.println(F("Wifi failed.  Restarting in 10 seconds.\n"));
+
+    delay(10000);
+    ESP.restart();
   }
-  Serial.println("\r\n");
-  Serial.print("Connected to ");
-  Serial.println(WiFi.SSID());             
-  Serial.print("IP address:\t");
-  Serial.print(WiFi.localIP());            
-  Serial.println("\r\n");
 }
 
 void startUDP() {
