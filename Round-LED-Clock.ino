@@ -39,6 +39,12 @@ unsigned long prevNTP = 0;
 unsigned long lastNTPResponse = millis();
 uint32_t timeUNIX = 0;
 unsigned long prevActualTime = 0;
+unsigned long lastMillis = 0;
+unsigned long lastSecondSwitch = 0; // check if needed
+unsigned long fadeStep = 10; // time in ms fading should be applied
+int currentSecond = 0;
+int currentMinute = 0;
+int currentHour = 0;
 
 #define LEAP_YEAR(Y) ( ((1970+Y)>0) && !((1970+Y)%4) && ( ((1970+Y)%100) || !((1970+Y)%400) ) )
 static const uint8_t monthDays[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
@@ -61,9 +67,9 @@ DateTime currentDateTime;
 // Check for reference: https://github.com/FastLED/FastLED/wiki/Pixel-reference#predefined-colors-list
 // You can also set the colors with RGB values, for example red:
 // CRGB colorHour = CRGB(255, 0, 0);
-CRGB colorHour = CRGB::Red;
-CRGB colorMinute = CRGB::Green;
-CRGB colorSecond = CRGB::Blue;
+CHSV colorHour = CHSV(0,255,255); // = CRGB::Red;
+CHSV colorMinute = CHSV(96,255,255); // = CRGB::Green;
+CHSV colorSecond = CHSV(160,255,255); // = CRGB::Blue;
 
 // Set this to true if you want the hour LED to move between hours (if set to false the hour LED will only move every hour)
 #define USE_LED_MOVE_BETWEEN_HOURS true
@@ -74,6 +80,8 @@ CRGB colorSecond = CRGB::Blue;
 #define NIGHTCUTOFF 20         // When does nightbrightness begin? 10pm
 #define NIGHTBRIGHTNESS 60     // Brightness level from 0 (off) to 255 (full brightness)
 #define DAYBRIGHTNESS 255      // Brightness level from 0 (off) to 255 (full brightness)
+
+#define USE_SECONDFADE true
           
 WiFiUDP UDP;                                    
 
@@ -129,31 +137,63 @@ void loop() {
     Serial.flush();
     ESP.reset();
   }
-
+  
   uint32_t actualTime = timeUNIX + (currentMillis - lastNTPResponse)/1000;
   if (actualTime != prevActualTime && timeUNIX != 0) { // If a second has passed since last update
-    FastLED.clear();
+    lastSecondSwitch = currentMillis;
+    
+    //reset some leds
+    //FastLED.clear();
+    LEDs[0] = CRGB(0, 0, 0);
+    LEDs[( currentMinute - 1 ) % NUM_LEDS] = CRGB(0, 0, 0);
+    LEDs[( currentHour - 1 ) % NUM_LEDS] = CRGB(0, 0, 0);
 
     prevActualTime = actualTime;
     convertTime(actualTime);
-
-    int second = getLEDMinuteOrSecond(currentDateTime.second);
-    int minute = getLEDMinuteOrSecond(currentDateTime.minute);
-    int hour = getLEDHour(currentDateTime.hour, currentDateTime.minute);
+    
+    currentSecond = getLEDMinuteOrSecond(currentDateTime.second);
+    currentMinute = getLEDMinuteOrSecond(currentDateTime.minute);
+    currentHour = getLEDHour(currentDateTime.hour, currentDateTime.minute);
 
     // Set "Hands"
-    LEDs[second] = colorSecond;
-    LEDs[minute] += colorMinute;  
-    LEDs[hour] += colorHour;
 
-    if ( night() && USE_NIGHTCUTOFF == true )
-      FastLED.setBrightness (NIGHTBRIGHTNESS);
-    else
-      FastLED.setBrightness (DAYBRIGHTNESS);
+    CRGB secCol;
+    hsv2rgb_spectrum( CHSV(colorSecond.hue ,colorSecond.sat , brightness()), secCol);
+    
+    LEDs[currentSecond] = secCol;
+    LEDs[currentMinute] += CHSV(colorMinute.hue ,colorMinute.sat , brightness());
+    LEDs[currentHour] += CHSV(colorHour.hue ,colorHour.sat , brightness());
+    
+    FastLED.show();
+    FastLED.show(); //second show to "prevent" flickering
+  }
 
+  if ( ( USE_SECONDFADE == true ) && ( ( currentMillis - lastMillis ) >= fadeStep ) ) {
+    lastMillis = currentMillis;
+
+    //reset some leds
+    LEDs[0] = CRGB(0, 0, 0);
+    LEDs[( currentMinute - 1 ) % NUM_LEDS] = CRGB(0, 0, 0);
+    LEDs[( currentHour - 1 ) % NUM_LEDS] = CRGB(0, 0, 0);
+
+    int curFade = (int)( ( ( ( (int)( ( lastMillis - lastSecondSwitch ) / 100 ) % 10 ) + 1 ) / 10.0 ) * brightness());
+    int nextFade = (int)( (  ( (int)( ( lastMillis - lastSecondSwitch ) / 100 ) % 10 ) / 10.0 ) * brightness());
+
+    CRGB nextCol; //need spectrum colors for better fading
+    hsv2rgb_spectrum( CHSV(colorSecond.hue ,colorSecond.sat , nextFade), nextCol);
+    CRGB curCol;
+    hsv2rgb_spectrum( CHSV(colorSecond.hue ,colorSecond.sat , brightness() - curFade), curCol);
+
+    LEDs[( ( currentSecond + 1 ) % NUM_LEDS )] = nextCol;
+    LEDs[currentSecond] = curCol;
+    
+    // hour minute color
+    LEDs[currentMinute] += CHSV(colorMinute.hue ,colorMinute.sat , brightness());
+    LEDs[currentHour] += CHSV(colorHour.hue ,colorHour.sat , brightness());
+    
     FastLED.show();
-    FastLED.show();
-  }  
+  }
+
 }
 
 byte getLEDHour(byte hours, byte minutes) {
@@ -227,6 +267,8 @@ void startWiFi() {
     delay(10000);
     ESP.restart();
   }
+  //clear all leds before start
+  FastLED.clear();
 }
 
 void startUDP() {
@@ -326,7 +368,7 @@ void convertTime(uint32_t time) {
   Serial.print(" summer time: ");
   Serial.print(summerTime());
   Serial.print(" night time: ");
-  Serial.print(night());  
+  Serial.print(night());
   Serial.println();
 #endif
 }
@@ -343,4 +385,13 @@ boolean summerTime() {
 
 boolean night() {
   return ( currentDateTime.hour >= NIGHTCUTOFF ) || ( currentDateTime.hour < MORNINGCUTOFF );
+}
+
+int brightness() {
+  if ( USE_NIGHTCUTOFF == true && ( ( currentDateTime.hour >= NIGHTCUTOFF ) || ( currentDateTime.hour < MORNINGCUTOFF ) ) ) {
+    return NIGHTBRIGHTNESS;
+  }
+  else {
+    return DAYBRIGHTNESS;
+  }
 }
