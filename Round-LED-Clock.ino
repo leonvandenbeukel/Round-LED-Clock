@@ -1,7 +1,7 @@
 /*
   WiFi connected round LED Clock. It gets NTP time from the internet and translates to a 60 RGB WS2812B LED strip.
 
-  If you have another orientation where the wire comes out then change the methods getLEDHour and getLEDMinuteOrSecond
+  If you have another orientation where the wire comes out then change offset. E.g with 60 LEDS offset is 30 if wire comes out at 6 o'clock. 15 if 9 o'clock and so on
 
   Happy programming, Leon van den Beukel, march 2019
 
@@ -77,7 +77,7 @@ CRGB colorSecond = CRGB::Blue;
           
 WiFiUDP UDP;                                    
 
-#define NUM_LEDS 60
+#define NUM_LEDS 60 // should use multiples of 60
 #define OFFSET_LEDS 0 //set offset of used LEDS.
 #define DATA_PIN D4 //D1, D4 tested on NodeMCU Amica Modul V2 ESP8266 ESP-12F
 #define BAUD_RATE 9600 //
@@ -157,38 +157,21 @@ void loop() {
 }
 
 byte getLEDHour(byte hours, byte minutes) {
-  if (hours > 12)
-    //convert 24h back to 12
-    hours = hours - 12;
-  Serial.print(hours);
-  Serial.print(" - ");
+  hours = hours % 12;
+
   byte hourLED;
-  if (hours <= 5)
-    hourLED = (hours * ( NUM_LEDS / 12 )) + OFFSET_LEDS;
-  else
-    hourLED = (hours * ( NUM_LEDS / 12 )) - OFFSET_LEDS;
-  
+  hourLED = ( (hours * ( NUM_LEDS / 12 )) + OFFSET_LEDS ) % NUM_LEDS;
+
   if (USE_LED_MOVE_BETWEEN_HOURS == true) {
-    if        (minutes >= 12 && minutes < 24) {
-      hourLED += 1;
-    } else if (minutes >= 24 && minutes < 36) {
-      hourLED += 2;
-    } else if (minutes >= 36 && minutes < 48) {
-      hourLED += 3;
-    } else if (minutes >= 48) {
-      hourLED += 4;
-    }
+    hourLED += floor( minutes / 12 ) * ( NUM_LEDS / 60 );
+    hourLED = hourLED % NUM_LEDS;
   }
   
-  hourLED = hourLED % NUM_LEDS;
   return hourLED;  
 }
 
 byte getLEDMinuteOrSecond(byte minuteOrSecond) {
-  if (minuteOrSecond < OFFSET_LEDS)
-    return minuteOrSecond + OFFSET_LEDS;
-  else 
-    return minuteOrSecond - OFFSET_LEDS;
+  return ( minuteOrSecond + OFFSET_LEDS ) % NUM_LEDS;
 }
 
 void configModeCallback (WiFiManager *myWiFiManager) {
