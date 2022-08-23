@@ -1,7 +1,7 @@
 /*
   WiFi connected round LED Clock. It gets NTP time from the internet and translates to a 60 RGB WS2812B LED strip.
 
-  If you have another orientation where the wire comes out then change offset. E.g with 60 LEDS offset is 30 if wire comes out at 6 o'clock. 15 if 9 o'clock and so on
+  If you have another orientation where the wire comes out then change offset.
 
   Happy programming, Leon van den Beukel, march 2019
 
@@ -39,6 +39,12 @@ unsigned long prevNTP = 0;
 unsigned long lastNTPResponse = millis();
 uint32_t timeUNIX = 0;
 unsigned long prevActualTime = 0;
+unsigned long lastMillis = millis();
+unsigned long lastSecondSwitch = 0; // check if needed
+
+int currentSecond = 0;
+int currentMinute = 0;
+int currentHour = 0;
 
 #define LEAP_YEAR(Y) ( ((1970+Y)>0) && !((1970+Y)%4) && ( ((1970+Y)%100) || !((1970+Y)%400) ) )
 static const uint8_t monthDays[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
@@ -58,29 +64,39 @@ DateTime currentDateTime;
 // ###FastLED Basics###
 
 // Change the colors here if you want.
-// Check for reference: https://github.com/FastLED/FastLED/wiki/Pixel-reference#predefined-colors-list
-// You can also set the colors with RGB values, for example red:
-// CRGB colorHour = CRGB(255, 0, 0);
-CRGB colorHour = CRGB::Red;
-CRGB colorMinute = CRGB::Green;
-CRGB colorSecond = CRGB::Blue;
+// Check for reference: https://github.com/FastLED/FastLED/wiki/Pixel-reference#setting-hsv-colors-
+CHSV colorHour = CHSV(0,255,255); // Red;
+CHSV colorMinute = CHSV(96,255,255); // Green;
+CHSV colorSecond = CHSV(160,255,255); // Blue;
+CHSV colorTicks = CHSV(128,255,255); // Aqua
 
 // Set this to true if you want the hour LED to move between hours (if set to false the hour LED will only move every hour)
-#define USE_LED_MOVE_BETWEEN_HOURS true
-
+#define USE_LED_MOVE_BETWEEN_HOURS true //move hour hand
 // Cutoff times for day / night brightness.
 #define USE_NIGHTCUTOFF true   // Enable/Disable night brightness
 #define MORNINGCUTOFF 8        // When does daybrightness begin?   8am
-#define NIGHTCUTOFF 20         // When does nightbrightness begin? 10pm
-#define NIGHTBRIGHTNESS 60     // Brightness level from 0 (off) to 255 (full brightness)
+#define NIGHTCUTOFF 15         // When does nightbrightness begin? 10pm
+#define NIGHTBRIGHTNESS 128    // Brightness level from 0 (off) to 255 (full brightness)
 #define DAYBRIGHTNESS 255      // Brightness level from 0 (off) to 255 (full brightness)
-          
+
+// hour tick settings
+#define ADD_HOURTICKS false     // show hour ticks on 12, 3, 6, 9
+#define ADD_LASTTICK true      // add additional hour tick on last led (used for linear setup)
+#define TICKFACTOR 4           // factor brightness of hourticks should be reduced to day/night brightness
+
+// fade second hand instead of jump
+#define USE_SECONDFADE true    // fade between current and next second
+#define FADE_STEP 50          // time in ms each fading should be applied
+
+// must stay before led stripe definition
 WiFiUDP UDP;                                    
 
-#define NUM_LEDS 60 // should use multiples of 60
-#define OFFSET_LEDS 0 //set offset of used LEDS.
+// led stripe definition
+#define NUM_LEDS 60 // should be multiples of 60
+#define OFFSET_LEDS 0 //set offset of used LEDS. Depends on your setup. E.g with 60 LEDS offset is 30 if wire comes out at 6 o'clock. 15 if 9 o'clock and so on
 #define DATA_PIN D4 //D1, D4 tested on NodeMCU Amica Modul V2 ESP8266 ESP-12F
-#define BAUD_RATE 9600 //
+#define BAUD_RATE 9600 //ESP baud rate for serial connection
+
 CRGB LEDs[NUM_LEDS];
 
 void setup() {
@@ -129,31 +145,60 @@ void loop() {
     Serial.flush();
     ESP.reset();
   }
-
+  
   uint32_t actualTime = timeUNIX + (currentMillis - lastNTPResponse)/1000;
   if (actualTime != prevActualTime && timeUNIX != 0) { // If a second has passed since last update
-    FastLED.clear();
+    lastSecondSwitch = currentMillis;
+    if ( USE_SECONDFADE == false ) {
+      FastLED.clear();
+      //resetSpecialLed();
+    }
 
     prevActualTime = actualTime;
     convertTime(actualTime);
+    
+    currentSecond = getLEDMinuteOrSecond(currentDateTime.second);
+    currentMinute = getLEDMinuteOrSecond(currentDateTime.minute);
+    currentHour = getLEDHour(currentDateTime.hour, currentDateTime.minute);
 
-    int second = getLEDMinuteOrSecond(currentDateTime.second);
-    int minute = getLEDMinuteOrSecond(currentDateTime.minute);
-    int hour = getLEDHour(currentDateTime.hour, currentDateTime.minute);
+    // Set Ticks
+    setHourTicks();
 
     // Set "Hands"
-    LEDs[second] = colorSecond;
-    LEDs[minute] += colorMinute;  
-    LEDs[hour] += colorHour;
+    if ( USE_SECONDFADE == false ) {
+      LEDs[currentSecond] = dimmedHSV2RGB_spectrum(colorSecond, brightness());    
+      setLedMinuteHour();
+    
+      FastLED.show();
+      FastLED.show(); //second show to "prevent" flickering
+    }
+  }
 
-    if ( night() && USE_NIGHTCUTOFF == true )
-      FastLED.setBrightness (NIGHTBRIGHTNESS);
-    else
-      FastLED.setBrightness (DAYBRIGHTNESS);
+  if ( ( USE_SECONDFADE == true ) && ( ( currentMillis - lastMillis ) >= FADE_STEP ) ) {
+    lastMillis = currentMillis;
 
+    FastLED.clear();
+    //resetSpecialLed();
+
+    setHourTicks();
+
+    //int nextFade = (int)( ( ( ( (int)( ( lastMillis - lastSecondSwitch ) / 100 ) % 10 ) + 1 ) / 10.0 ) * brightness());
+    int nextFade = ( ( ( (int)( ( lastMillis - lastSecondSwitch ) / 100 ) % 10 ) / 10.0 ) * brightness());
+
+    //use spectrum colors for better fading
+    // -- use 3 leds for fading
+    LEDs[( ( currentSecond + 1 ) % NUM_LEDS )] = dimmedHSV2RGB_spectrum(colorSecond, nextFade);
+    LEDs[currentSecond] = dimmedHSV2RGB_spectrum(colorSecond, brightness());
+    LEDs[( ( currentSecond - 1 ) % NUM_LEDS )] = dimmedHSV2RGB_spectrum(colorSecond, brightness() - nextFade);
+    // -- use 2 leds for fading
+    //LEDs[( ( currentSecond + 1 ) % NUM_LEDS )] = dimmedHSV2RGB_spectrum(colorSecond, nextFade);
+    //LEDs[currentSecond] = dimmedHSV2RGB_spectrum(colorSecond, brightness() - nextFade);
+    
+    setLedMinuteHour();
+    
     FastLED.show();
-    FastLED.show();
-  }  
+  }
+
 }
 
 byte getLEDHour(byte hours, byte minutes) {
@@ -172,6 +217,49 @@ byte getLEDHour(byte hours, byte minutes) {
 
 byte getLEDMinuteOrSecond(byte minuteOrSecond) {
   return ( minuteOrSecond + OFFSET_LEDS ) % NUM_LEDS;
+}
+
+void setLedMinuteHour() {
+    // hour & minute hand color
+    LEDs[currentMinute] += dimmedColorHSV(colorMinute, brightness());
+    LEDs[currentHour] += dimmedColorHSV(colorHour, brightness());
+}
+
+void setHourTicks() {
+  if ( ADD_HOURTICKS == true ) {
+    for( int led = 0; led < NUM_LEDS; led = led + (NUM_LEDS / 4) ) {
+        LEDs[( led + OFFSET_LEDS ) % NUM_LEDS] += dimmedColorHSV(colorTicks, brightness() / 4 );
+    }
+    if ( ADD_LASTTICK == true )
+      LEDs[( NUM_LEDS + OFFSET_LEDS - 1 ) % NUM_LEDS] += dimmedColorHSV(colorTicks, brightness() / TICKFACTOR );
+  }
+}
+
+CHSV dimmedColorHSV(CHSV color, int brightness) {
+  return CHSV(color.hue ,color.sat , brightness);
+}
+
+CRGB dimmedHSV2RGB_spectrum(CHSV color, int brightness) {
+  return CHSV(color.hue ,color.sat , brightness);
+    CRGB dimmedCol;
+    hsv2rgb_spectrum( CHSV(color.hue ,color.sat , brightness), dimmedCol);
+    return dimmedCol;
+}
+
+void resetSpecialLed() {
+  //reset some leds directly if FastLED.clear() is not used
+  // currently fills brightness to 255
+  LEDs[0] = CHSV(0, 0, 0);
+  LEDs[( currentMinute - 1 ) % NUM_LEDS] = CHSV(0, 0, 0);
+  LEDs[( currentHour - 1 ) % NUM_LEDS] = CHSV(0, 0, 0);
+}
+int brightness() {
+  if ( USE_NIGHTCUTOFF == true && night() ) {
+    return NIGHTBRIGHTNESS;
+  }
+  else {
+    return DAYBRIGHTNESS;
+  }
 }
 
 void configModeCallback (WiFiManager *myWiFiManager) {
@@ -227,6 +315,9 @@ void startWiFi() {
     delay(10000);
     ESP.restart();
   }
+  //clear all leds before start
+  FastLED.clear();
+  FastLED.show();
 }
 
 void startUDP() {
@@ -326,7 +417,7 @@ void convertTime(uint32_t time) {
   Serial.print(" summer time: ");
   Serial.print(summerTime());
   Serial.print(" night time: ");
-  Serial.print(night());  
+  Serial.print(night());
   Serial.println();
 #endif
 }
